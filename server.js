@@ -8,7 +8,7 @@ const connectDB = require('./config/db');
 const initializeAdmin = require('./config/initAdmin');
 
 dotenv.config();
-connectDB(); // Establish MongoDB connection
+connectDB(); // Establish MongoDB connections
 
 const app = express();
 app.use(cors()); // Enable Cross-Origin Resource Sharing
