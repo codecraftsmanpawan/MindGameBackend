@@ -1,8 +1,10 @@
-const { Server } = require('ws');
+const WebSocket = require('ws'); // Ensure WebSocket is properly imported
+const { Server } = WebSocket; // Use WebSocket.Server instead of 'ws'
 const Game = require('./models/Game');
 const Bet = require('./models/Bet');
 const Client = require('./models/Client');
-const { generateResults } = require('./utils/generateResults'); // Import generateResults from utils
+const { generateResults } = require('./utils/generateResults');
+const bcrypt = require('bcrypt');
 
 const wss = new Server({ noServer: true });
 
@@ -85,9 +87,9 @@ const handleBet = async (socket, data) => {
             client.budget += winningAmount;
             await client.save();
             socket.send(JSON.stringify({ type: 'BET_WON', message: `Congratulations! You won ${winningAmount} credits.` }));
+        } else {
+            socket.send(JSON.stringify({ type: 'BET_PLACED', bet }));
         }
-
-        socket.send(JSON.stringify({ type: 'BET_PLACED', bet }));
 
         broadcastGameState(gameId);
     } catch (error) {
@@ -116,69 +118,92 @@ const broadcastGameState = async (gameId) => {
     }
 };
 
-const startGameCycle = async (mode) => {
-    const gameDuration = 15 * 60 * 1000; // 15 minutes in milliseconds
-    let delay = 0; // Delay for starting the game
+const startGameCycle = async (mode, delay = 0) => {
+    try {
+        // Delay the start of the game cycle if specified
+        if (delay > 0) {
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
 
-    if (mode === 'tenColors') {
-        delay = 10 * 60 * 1000; // 10 minutes in milliseconds
-    }
+        // Check if there's already a running game for this mode
+        const existingGame = await Game.findOne({ mode, status: 'running' });
+        if (existingGame) {
+            console.log(`A game is already running for mode ${mode}`);
+            return;
+        }
 
-    setTimeout(async () => {
+        // Create a new game
         const newGame = new Game({ mode, status: 'running' });
         await newGame.save();
-    
-        wss.emit('gameStarted', { gameId: newGame._id, mode });
-    
-        setTimeout(() => {
-            endGameCycle(newGame._id);
-        }, gameDuration);
-        
-        // Automatically start the next game cycle for tenColors after 30 seconds
-        if (mode === 'tenColors') {
-            setTimeout(() => {
-                startGameCycle(mode);
-            }, 30 * 1000); // 30 seconds in milliseconds
-        }
-    }, delay);
-};
 
+        wss.emit('gameStarted', { gameId: newGame._id, mode });
+
+        // Automatically end the game after endTime has passed
+        setTimeout(async () => {
+            await endGameCycle(newGame._id);
+        }, newGame.endTime - Date.now() + 10000); // Adjust buffer if needed
+    } catch (error) {
+        console.error(`Error starting game cycle for mode ${mode}:`, error);
+    }
+};
 
 const endGameCycle = async (gameId) => {
-    const game = await Game.findById(gameId);
-    if (!game) {
-        console.error('Game not found');
-        return;
-    }
-
-    const results = await generateResults(game);
-
-    const updatedGame = await Game.findByIdAndUpdate(gameId, {
-        status: 'completed',
-        endTime: Date.now(),
-        results,
-    }, { new: true });
-
-    const bets = await Bet.find({ gameId });
-    for (const bet of bets) {
-        if (bet.color === results) {
-            const winningAmount = bet.amount * (game.mode === 'blackWhite' ? 1.9 : 9);
-            bet.winningAmount = winningAmount;
-            bet.result = 'win';
-            const client = await Client.findById(bet.clientId);
-            client.budget += winningAmount;
-            await client.save();
-        } else {
-            bet.result = 'loss';
+    try {
+        const game = await Game.findById(gameId);
+        if (!game) {
+            console.error('Game not found');
+            return;
         }
-        await bet.save();
+
+        const results = await generateResults(game);
+
+        const updatedGame = await Game.findByIdAndUpdate(gameId, {
+            status: 'completed',
+            endTime: Date.now(),
+            results,
+        }, { new: true });
+
+        const bets = await Bet.find({ gameId });
+        for (const bet of bets) {
+            if (bet.color === results) {
+                const winningAmount = bet.amount * (game.mode === 'blackWhite' ? 1.9 : 9);
+                bet.winningAmount = winningAmount;
+                bet.result = 'win';
+                const client = await Client.findById(bet.clientId);
+                client.budget += winningAmount;
+                await client.save();
+            } else {
+                bet.result = 'loss';
+            }
+            await bet.save();
+        }
+
+        wss.emit('gameEnded', updatedGame);
+
+        // Start a new game cycle with a 30 seconds delay
+        setTimeout(() => {
+            startGameCycle(updatedGame.mode); // Start a new game cycle
+        }, 30 * 1000); // 30 seconds delay after ending the game
+    } catch (error) {
+        console.error('Error ending game cycle:', error);
     }
-
-    wss.emit('gameEnded', updatedGame);
-
-    setTimeout(() => {
-        startGameCycle(updatedGame.mode);
-    }, 20 * 1000);
 };
 
-module.exports = { wss, startGameCycle, handleBet };
+const initializeServer = async () => {
+    try {
+        await Game.endAllRunningGames(); // End all running games on server start
+        await startGameCycle('blackWhite'); // Start a new game cycle with the desired mode
+
+        // Add a 3-minute delay before starting the tenColors game
+        setTimeout(async () => {
+            await startGameCycle('tenColors');
+        }, 5 * 60 * 1000); // 3 minutes delay
+    } catch (error) {
+        console.error('Error initializing server:', error);
+    }
+};
+
+// Call initializeServer when the server starts
+initializeServer();
+
+module.exports = { wss, startGameCycle, handleBet, initializeServer };

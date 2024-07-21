@@ -7,7 +7,7 @@ const betSchema = new mongoose.Schema({
     color: { type: String, required: true }, // Color chosen by the client for the bet
     gameMode: { type: String, required: true }, // Game mode (e.g., 'blackWhite', 'tenColor')
     timestamp: { type: Date, default: Date.now }, // Timestamp of when the bet was placed
-    result: { type: String },
+    result: { type: String }, // Result of the bet (e.g., 'win', 'loss')
 });
 
 module.exports = mongoose.model('Bet', betSchema);

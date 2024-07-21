@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { generateResults } = require('../utils/generateResults'); // Adjust the path as necessary
 
 const GameSchema = new mongoose.Schema({
     gameId: { type: String, unique: true },
@@ -27,25 +28,20 @@ GameSchema.virtual('countdown').get(function() {
 GameSchema.pre('save', async function(next) {
     if (this.isNew) {
         try {
-            // Determine the prefix based on the mode
             const prefix = this.mode === 'blackWhite' ? 'BW' : 'TC';
-
-            // Find the last game ID for the current mode
             const lastGame = await this.constructor.findOne({ mode: this.mode }).sort({ gameId: -1 });
 
             let nextNumber = 1;
             if (lastGame && lastGame.gameId) {
                 const lastGameId = lastGame.gameId;
-                const lastNumber = parseInt(lastGameId.substring(2)); // Extract number part and convert to integer
+                const lastNumber = parseInt(lastGameId.substring(2));
                 nextNumber = lastNumber + 1;
             }
 
-            // Generate gameId based on mode and incremented number
             const paddedNumber = nextNumber.toString().padStart(4, '0');
             this.gameId = `${prefix}${paddedNumber}`;
 
-            // Set endTime based on game mode
-            const gameDuration = this.mode === 'blackWhite' ? 15 * 60 * 1000 : 15 * 60 * 1000; // 15 minutes in milliseconds for both modes
+            const gameDuration = 15 * 60 * 1000; // 15 minutes
             this.endTime = new Date(Date.now() + gameDuration);
         } catch (error) {
             console.error('Error generating game ID:', error);
@@ -62,10 +58,9 @@ GameSchema.methods.startGame = async function() {
             this.status = 'running';
             await this.save();
 
-            // Automatically end the game after endTime has passed
             setTimeout(async () => {
                 await this.endGame();
-            }, 15 * 60 * 1000 + 10000); // 15 minutes + 10 seconds as buffer
+            }, 15 * 60 * 1000 + 10000); // 15 minutes + 10 seconds
         } catch (error) {
             console.error('Error starting the game:', error);
             throw new Error('Error starting the game');
@@ -77,23 +72,44 @@ GameSchema.methods.startGame = async function() {
 GameSchema.methods.endGame = async function() {
     if (this.status === 'running') {
         try {
-            // Clear game results
-            this.results = undefined;
+            if (this.results) {
+                console.log('Results already declared for this game.');
+                return;
+            }
 
-            // Update game status and endTime
+            const results = await generateResults(this);
+
             this.status = 'completed';
             this.endTime = new Date();
+            this.results = results;
             await this.save();
 
-            // Update associated bets (if any) - Example: Remove or update bets logic
-            // await mongoose.model('Bet').updateMany({ gameId: this._id }, { $set: { result } });
-
-            // Optionally, you can return or perform additional actions
-            // return result;
+            const bets = await mongoose.model('Bet').find({ gameId: this._id });
+            for (const bet of bets) {
+                if (bet.color === results) {
+                    const winningAmount = bet.amount * (this.mode === 'blackWhite' ? 1.9 : 9);
+                    bet.winningAmount = winningAmount;
+                    bet.result = 'win';
+                    const client = await mongoose.model('Client').findById(bet.clientId);
+                    client.budget += winningAmount;
+                    await client.save();
+                } else {
+                    bet.result = 'loss';
+                }
+                await bet.save();
+            }
         } catch (error) {
             console.error('Error ending the game:', error);
             throw new Error('Error ending the game');
         }
+    }
+};
+
+// Static method to end all running games on server start
+GameSchema.statics.endAllRunningGames = async function() {
+    const runningGames = await this.find({ status: 'running' });
+    for (const game of runningGames) {
+        await game.endGame();
     }
 };
 

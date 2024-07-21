@@ -15,8 +15,8 @@ router.get('/:id', authMiddleware, clientController.getClientById);
 // // PUT /api/client/:id - Update client by ID (requires authentication)
 // router.put('/:id', authMiddleware, clientController.updateClient);
 
-// // DELETE /api/client/:id - Delete client by ID (requires authentication)
-// router.delete('/:id', authMiddleware, clientController.deleteClient);
+// DELETE /api/client/:id - Delete client by ID (requires authentication)
+router.delete('/:id', authMiddleware, clientController.deleteClient);
 
 // POST /api/client/login - Login client (public)
 router.post('/login', clientController.loginClient);

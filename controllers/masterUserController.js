@@ -145,7 +145,25 @@ const getClientsByMasterCode = async (req, res) => {
             return res.status(404).send({ message: 'MasterUser not found' });
         }
 
-        // Aggregate total bet amount by clients
+        // Calculate the start and end dates for the current week (assuming week starts on Monday)
+        const currentDate = new Date();
+        const firstDayOfWeek = new Date(currentDate.setDate(currentDate.getDate() - (currentDate.getDay() + 6) % 7));
+        const lastDayOfWeek = new Date(firstDayOfWeek);
+        lastDayOfWeek.setDate(firstDayOfWeek.getDate() + 6);
+
+        // Format the dates for display
+        const formatDate = (date) => {
+            const d = new Date(date);
+            const month = ('0' + (d.getMonth() + 1)).slice(-2);
+            const day = ('0' + d.getDate()).slice(-2);
+            const year = d.getFullYear();
+            return `${year}-${month}-${day}`;
+        };
+
+        const formattedFirstDayOfWeek = formatDate(firstDayOfWeek);
+        const formattedLastDayOfWeek = formatDate(lastDayOfWeek);
+
+        // Aggregate clients and their total bet amount, win amount, loss amount, win count, loss count, and total bet count
         const clientsWithTotalBet = await Client.aggregate([
             {
                 $match: {
@@ -161,14 +179,55 @@ const getClientsByMasterCode = async (req, res) => {
                 }
             },
             {
-                $project: {
-                    code: 1,
-                    budget: 1,
-                    status: 1,
-                    username: 1,
-                    createDate: 1,
-                    updateDate: 1,
-                    totalBetAmount: { $sum: '$bets.amount' }
+                $unwind: {
+                    path: '$bets',
+                    preserveNullAndEmptyArrays: true
+                }
+            },
+            {
+                $match: {
+                    'bets.timestamp': {
+                        $gte: firstDayOfWeek,
+                        $lt: lastDayOfWeek
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: '$_id',
+                    code: { $first: '$code' },
+                    budget: { $first: '$budget' },
+                    status: { $first: '$status' },
+                    username: { $first: '$username' },
+                    createDate: { $first: '$createDate' },
+                    updateDate: { $first: '$updateDate' },
+                    totalBetAmount: { $sum: '$bets.amount' },
+                    totalWinAmount: {
+                        $sum: {
+                            $switch: {
+                                branches: [
+                                    { case: { $eq: ['$bets.result', 'win'] }, then: { $multiply: ['$bets.amount', { $cond: [{ $eq: ['$bets.gameMode', 'blackWhite'] }, 1.9, { $cond: [{ $eq: ['$bets.gameMode', 'tenColor'] }, 9, 1] }] }] } }
+                                ],
+                                default: 0
+                            }
+                        }
+                    },
+                    totalLossAmount: {
+                        $sum: {
+                            $cond: [{ $eq: ['$bets.result', 'loss'] }, '$bets.amount', 0]
+                        }
+                    },
+                    totalWinCount: {
+                        $sum: {
+                            $cond: [{ $eq: ['$bets.result', 'win'] }, 1, 0]
+                        }
+                    },
+                    totalLossCount: {
+                        $sum: {
+                            $cond: [{ $eq: ['$bets.result', 'loss'] }, 1, 0]
+                        }
+                    },
+                    totalBetCount: { $sum: 1 } // Add total bet count
                 }
             }
         ]);
@@ -178,11 +237,22 @@ const getClientsByMasterCode = async (req, res) => {
             client.brokargeAmount = (client.totalBetAmount * masterUser.brokarge) / 100;
         });
 
-        res.json(clientsWithTotalBet);
+        // Add date range to the response
+        const response = {
+            firstDayOfWeek: formattedFirstDayOfWeek,
+            lastDayOfWeek: formattedLastDayOfWeek,
+            clients: clientsWithTotalBet
+        };
+
+        res.json(response);
     } catch (error) {
         res.status(500).send({ message: 'Error retrieving clients with total bet amount and brokarge calculation', error: error.message });
     }
 };
+
+
+
+
 
 
 // Function to get total bet amount by masterCode
@@ -253,6 +323,65 @@ const changePassword = async (req, res) => {
     }
 };
 
+const getWeeklyDataByCode = async (req, res) => {
+    try {
+        const { code } = req.params;
+
+        // Find masterUser by code
+        const masterUser = await MasterUser.findOne({ code });
+        if (!masterUser) {
+            return res.status(404).send({ message: 'MasterUser not found' });
+        }
+
+        // Calculate the start and end dates for the current week (assuming week starts on Sunday)
+        const currentDate = new Date();
+        const firstDayOfWeek = new Date(currentDate.setDate(currentDate.getDate() - currentDate.getDay()));
+        const lastDayOfWeek = new Date(firstDayOfWeek);
+        lastDayOfWeek.setDate(firstDayOfWeek.getDate() + 6);
+
+        // Aggregate bet data within the date range
+        const bets = await Bet.aggregate([
+            {
+                $lookup: {
+                    from: 'clients',
+                    localField: 'clientId',
+                    foreignField: '_id',
+                    as: 'client'
+                }
+            },
+            {
+                $match: {
+                    'client.masterCode': code,
+                    timestamp: {
+                        $gte: firstDayOfWeek,
+                        $lt: lastDayOfWeek
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalWin: {
+                        $sum: {
+                            $cond: [{ $eq: ['$result', 'win'] }, '$amount', 0]
+                        }
+                    },
+                    totalLoss: {
+                        $sum: {
+                            $cond: [{ $eq: ['$result', 'loss'] }, '$amount', 0]
+                        }
+                    }
+                }
+            }
+        ]);
+
+        const weeklyData = bets[0] || { totalWin: 0, totalLoss: 0 };
+
+        res.json({ weeklyData });
+    } catch (error) {
+        res.status(500).send({ message: 'Error retrieving weekly data', error: error.message });
+    }
+};
 
 
 module.exports = {
@@ -265,5 +394,6 @@ module.exports = {
     getMasterUserProfile,
     getClientsByMasterCode,
     getTotalBetAmountByMasterCode,
-    changePassword
+    changePassword,
+    getWeeklyDataByCode
 };

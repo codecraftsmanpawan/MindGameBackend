@@ -1,7 +1,6 @@
-const Game = require('../models/Game'); // Adjust the path as needed
-const Bet = require('../models/Bet');   // Adjust the path as needed
-const Client = require('../models/Client'); // Adjust the path as needed
-const MasterUser = require('../models/MasterUser'); // Adjust the path as needed
+const Bet = require('../models/Bet');
+const Client = require('../models/Client');
+const MasterUser = require('../models/MasterUser');
 
 const generateResults = async (game) => {
     if (!game) throw new Error('Game not found');
@@ -92,8 +91,5 @@ const generateResults = async (game) => {
         throw new Error('Invalid game mode');
     }
 };
-
-module.exports = { generateResults };
-
 
 module.exports = { generateResults };

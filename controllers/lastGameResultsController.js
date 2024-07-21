@@ -12,13 +12,13 @@ const getLastGameResultsByMode = async (req, res) => {
         // Prepare response data
         const results = {
             blackWhite: lastBlackWhiteGame ? {
-                gameId: lastBlackWhiteGame.gameId,
+                gameId: lastBlackWhiteGame._id,
                 mode: lastBlackWhiteGame.mode,
                 endTime: lastBlackWhiteGame.endTime,
                 results: lastBlackWhiteGame.results // Adjust if results field is populated differently in your Game model
             } : null,
             tenColors: lastTenColorsGame ? {
-                gameId: lastTenColorsGame.gameId,
+                gameId: lastTenColorsGame._id,
                 mode: lastTenColorsGame.mode,
                 endTime: lastTenColorsGame.endTime,
                 results: lastTenColorsGame.results // Adjust if results field is populated differently in your Game model

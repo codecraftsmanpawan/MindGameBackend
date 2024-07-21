@@ -121,6 +121,7 @@ const getOngoingGameDetails = async (req, res) => {
             }
 
             return {
+                Id: game._id,
                 gameId: game.gameId, // Using game._id as gameId
                 mode: game.mode,
                 status: game.status,

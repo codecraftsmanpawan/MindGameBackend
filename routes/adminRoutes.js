@@ -12,7 +12,7 @@ router.post('/login', adminLogin);
 router.get('/ongoing-game-details', authMiddleware, getOngoingGameDetails);
 
 // Route to fetch last game results by mode (protected by authMiddleware)
-router.get('/last-game-results', authMiddleware, getLastGameResultsByMode);
+router.get('/last-game-results',  getLastGameResultsByMode);
 
 // Route to update client budget (protected by authMiddleware)
 router.put('/update-budget/:id', authMiddleware, updateClientBudget);

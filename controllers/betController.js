@@ -67,6 +67,7 @@ exports.joinGame = async (req, res) => {
 };
 
 // Controller function to declare results for a game and update status
+// Controller function to declare results for a game and update status
 exports.declareResults = async (req, res) => {
     const { id } = req.params;
     const { results } = req.body;
@@ -106,22 +107,21 @@ exports.declareResults = async (req, res) => {
             await client.save();
         }
 
-        // After 10 seconds, update status to 'completed' and return the game results
+        // Send immediate response
+        res.status(200).json({
+            success: true,
+            data: game
+        });
+
+        // After 10 seconds, update status to 'completed'
         setTimeout(async () => {
             try {
                 const completedGame = await Game.findByIdAndUpdate(id, { status: 'completed' }, { new: true });
                 if (!completedGame) {
                     console.error('Error completing game:', err);
-                    return res.status(500).json({ error: 'Internal Server Error' });
                 }
-
-                res.status(200).json({
-                    success: true,
-                    data: completedGame
-                });
             } catch (err) {
                 console.error('Error updating game status to completed:', err);
-                res.status(500).json({ error: 'Internal Server Error' });
             }
         }, 10000);
     } catch (err) {
@@ -129,6 +129,7 @@ exports.declareResults = async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 };
+
 
 // Controller function to fetch bets for a specific client
 exports.getClientBets = async (req, res) => {
@@ -158,9 +159,7 @@ exports.getClientBets = async (req, res) => {
                 }
             },
             {
-                $addFields: {
-                    gameId: { $arrayElemAt: ['$game', 0] }
-                }
+                $unwind: '$game'
             },
             {
                 $project: {
@@ -169,12 +168,12 @@ exports.getClientBets = async (req, res) => {
                     color: 1,
                     gameMode: 1,
                     timestamp: 1,
-                    gameId: '$gameId.gameId', // Add gameId here
-                    results: '$gameId.results',
-                    status: '$gameId.status',
+                    gameId: '$game.gameId', // Add gameId here
+                    results: '$game.results',
+                    status: '$game.status',
                     gameOutcome: {
                         $cond: {
-                            if: { $eq: ['$color', '$gameId.results'] },
+                            if: { $eq: ['$color', '$game.results'] },
                             then: 'win',
                             else: 'loss'
                         }
@@ -220,12 +219,10 @@ exports.getCurrentBets = async (req, res) => {
                 }
             },
             {
-                $addFields: {
-                    gameId: { $arrayElemAt: ['$game', 0] }
-                }
+                $unwind: '$game'
             },
             {
-                $match: { 'gameId.status': 'running' }
+                $match: { 'game.status': 'running' }
             },
             {
                 $project: {
@@ -234,9 +231,9 @@ exports.getCurrentBets = async (req, res) => {
                     color: 1,
                     gameMode: 1,
                     timestamp: 1,
-                    gameId: '$gameId.gameId', // Add gameId here
-                    results: '$gameId.results',
-                    status: '$gameId.status'
+                    gameId: '$game.gameId', // Add gameId here
+                    results: '$game.results',
+                    status: '$game.status'
                 }
             }
         ]);
